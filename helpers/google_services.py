@@ -246,11 +246,7 @@ class SheetsOperations:
         Initialize copied template timesheet with formatting,
         names, range protection, etc.
         """
-        ind_sheet = (
-            self.sheet.get(spreadsheetId=self.volunteer_timesheet_id)
-            .execute()
-            .get("sheets")[0]
-        )
+        ind_sheet = self._get_first_sheet()
 
         sheet_id = ind_sheet.get("properties").get("sheetId")
         protected_range_id = ind_sheet.get("protectedRanges")
@@ -271,6 +267,14 @@ class SheetsOperations:
             protected_range_id,
         )
 
+    def _get_first_sheet(self) -> dict:
+        """Get the metadata dict of the first sheet in the volunteer's timesheet."""
+        return (
+            self.sheet.get(spreadsheetId=self.volunteer_timesheet_id)
+            .execute()
+            .get("sheets")[0]
+        )
+
     def get_last_entry_datetime(
         self, clock_in: bool = True
     ) -> datetime.datetime | None:
@@ -279,11 +283,17 @@ class SheetsOperations:
         date_index = 0
         time_index = 1 if clock_in else 2
 
+        sheet_name = (
+            self._get_first_sheet()
+            .get("properties", {})
+            .get("title", "Sheet1")
+        )
+
         log_entries = (
             self.sheet.values()
             .get(
                 spreadsheetId=self.volunteer_timesheet_id,
-                range="Sheet1!A3:C",  # Columns are A: Date, B: Clock-in time, C: Clock-out time
+                range=f"'{sheet_name}'!A3:C",  # Columns are A: Date, B: Clock-in time, C: Clock-out time
                 majorDimension="ROWS",
                 dateTimeRenderOption="FORMATTED_STRING",
             )
@@ -308,9 +318,14 @@ class SheetsOperations:
         else:
             time_part = time_part[time_index]
 
-        return datetime.datetime.strptime(
-            f"{date_part} {time_part}", "%m/%d/%Y %I:%M %p"
-        )
+        time_formats = ["%m/%d/%Y %I:%M %p", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p"]
+        for fmt in time_formats:
+            try:
+                return datetime.datetime.strptime(f"{date_part} {time_part}", fmt)
+            except ValueError:
+                continue
+
+        raise ValueError(f"Unable to parse time '{date_part}' '{time_part}'")
 
     def add_clock_in_entry_to_timesheet(self, log_entry: tuple, master=False):
         """
